@@ -1,0 +1,1608 @@
+<!DOCTYPE html>
+<html lang="hy">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Վիրտուալ Ջերմոց (3D Virtual Greenhouse)</title>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <!-- Noto Sans Armenian Font -->
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Armenian:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <!-- Three.js and OrbitControls -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        armenian: ['"Noto Sans Armenian"', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        body {
+            font-family: 'Noto Sans Armenian', sans-serif;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #030712;
+            color: #f3f4f6;
+            user-select: none;
+        }
+
+        #webgl-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 1;
+        }
+
+
+        /* Glassmorphism Panels */
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.85);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
+        }
+
+        .glass-card {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 5px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: rgba(0, 0, 0, 0.2);
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: rgba(16, 185, 129, 0.5);
+            border-radius: 3px;
+        }
+
+        /* Smooth UI Hide / Show transition */
+        .ui-container {
+            transition: opacity 0.4s ease-in-out, transform 0.4s ease-in-out, visibility 0.4s;
+        }
+
+        .ui-hidden {
+            opacity: 0 !important;
+            transform: scale(0.98);
+            pointer-events: none !important;
+            visibility: hidden !important;
+        }
+
+
+        #3d-tooltip {
+            position: absolute;
+            display: none;
+            pointer-events: none;
+            z-index: 50;
+            transition: opacity 0.2s ease;
+        }
+
+        /* Custom Slider Styling */
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 16px;
+            width: 16px;
+            border-radius: 50%;
+            background: #10b981;
+            cursor: pointer;
+            box-shadow: 0 0 10px rgba(16, 185, 129, 0.8);
+            margin-top: -5px;
+        }
+    </style>
+</head>
+<body class="font-armenian">
+
+    <!-- 3D Canvas Container -->
+    <div id="webgl-container"></div>
+
+    <!-- 3D Object Hover Tooltip -->
+    <div id="3d-tooltip" class="glass-panel px-3 py-1.5 rounded-lg text-xs font-semibold text-emerald-300 border border-emerald-500/40 shadow-lg flex items-center gap-2">
+        <i data-lucide="info" class="w-3.5 h-3.5 text-emerald-400"></i>
+        <span id="tooltip-text">Բույս</span>
+    </div>
+
+
+    <!-- Interactive Fruit Inspection Pop-up Modal -->
+    <div id="fruit-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md hidden">
+        <div class="glass-panel max-w-lg w-full rounded-2xl p-5 border border-emerald-500/50 shadow-2xl flex flex-col gap-4 animate-in fade-in zoom-in duration-200">
+            <div class="flex justify-between items-start border-b border-slate-700/80 pb-3">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400">
+                        <i data-lucide="apple" class="w-6 h-6"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-base font-bold text-slate-100" id="modal-crop-name">Լոլիկ - Բերքի Վերլուծություն</h3>
+                        <p class="text-xs text-emerald-400 font-medium">Ինչ պայմաններում է աճել այս պտուղը</p>
+                    </div>
+                </div>
+                <button onclick="closeFruitModal()" class="text-slate-400 hover:text-white p-1 rounded-lg bg-slate-800 hover:bg-slate-700 transition">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <!-- Quality Rating Summary -->
+            <div class="grid grid-cols-2 gap-3">
+                <div class="bg-slate-900/80 p-3 rounded-xl border border-emerald-500/30 flex flex-col items-center justify-center text-center">
+                    <span class="text-xs text-slate-400">Բերքի Որակի Ինդեքս</span>
+                    <span id="modal-yield-grade" class="text-xl font-black text-emerald-400 mt-1">Գերազանց (96%)</span>
+                </div>
+                <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-700/80 flex flex-col items-center justify-center text-center">
+                    <span class="text-xs text-slate-400">Հասունացման Փուլ</span>
+                    <span id="modal-crop-stage" class="text-sm font-bold text-amber-300 mt-1">100% Պտղաբերում</span>
+                </div>
+            </div>
+
+
+            <!-- Detailed Average Conditions Grid -->
+            <div class="space-y-2">
+                <h4 class="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                    <i data-lucide="sliders" class="w-3.5 h-3.5 text-emerald-400"></i>
+                    Միջին Աճման Պայմաններ (0%-100%)
+                </h4>
+                <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
+                    <div class="bg-slate-900/50 p-2 rounded-xl border border-slate-800">
+                        <span class="text-[10px] text-slate-400 block">Ջերմաստիճան</span>
+                        <span id="modal-avg-temp" class="font-bold text-slate-200">24.2 °C</span>
+                        <span class="text-[9px] text-emerald-400 block mt-0.5">Օպտիմալ (20-28°C)</span>
+                    </div>
+                    <div class="bg-slate-900/50 p-2 rounded-xl border border-slate-800">
+                        <span class="text-[10px] text-slate-400 block">Հողի Խոնավություն</span>
+                        <span id="modal-avg-soil" class="font-bold text-slate-200">74 %</span>
+                        <span class="text-[9px] text-emerald-400 block mt-0.5">Օպտիմալ (65-80%)</span>
+                    </div>
+                    <div class="bg-slate-900/50 p-2 rounded-xl border border-slate-800">
+                        <span class="text-[10px] text-slate-400 block">Լուսավորվածություն</span>
+                        <span id="modal-avg-light" class="font-bold text-slate-200">9,200 Lux</span>
+                        <span class="text-[9px] text-emerald-400 block mt-0.5">Օպտիմալ</span>
+                    </div>
+                    <div class="bg-slate-900/50 p-2 rounded-xl border border-slate-800">
+                        <span class="text-[10px] text-slate-400 block">Օդի Խոնավություն</span>
+                        <span id="modal-avg-humidity" class="font-bold text-slate-200">68 %</span>
+                        <span class="text-[9px] text-emerald-400 block mt-0.5">Օպտիմալ</span>
+                    </div>
+                    <div class="bg-slate-900/50 p-2 rounded-xl border border-slate-800">
+                        <span class="text-[10px] text-slate-400 block">CO₂ Մակարդակ</span>
+                        <span id="modal-avg-co2" class="font-bold text-slate-200">820 ppm</span>
+                        <span class="text-[9px] text-emerald-400 block mt-0.5">Օպտիմալ</span>
+                    </div>
+                    <div class="bg-slate-900/50 p-2 rounded-xl border border-slate-800">
+                        <span class="text-[10px] text-slate-400 block">Խնամքի Կարգավիճակ</span>
+                        <span class="font-bold text-emerald-400">100% Ավտոմատ</span>
+                    </div>
+                </div>
+            </div>
+
+
+            <!-- Timeline Notes -->
+            <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-800 text-xs text-slate-300">
+                <span class="font-semibold text-emerald-400 block mb-1">Խնամքի Մատյանի Ամփոփում․</span>
+                <p id="modal-summary-text">Պտուղը ստացել է բավարար ոռոգում և LED լուսավորություն: Ջերմային շեղումներ չեն արձանագրվել:</p>
+            </div>
+
+            <button onclick="closeFruitModal()" class="w-full py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-medium text-xs transition">
+                Փակել Պատուհանը
+            </button>
+        </div>
+    </div>
+
+    <!-- ALWAYS VISIBLE FLOATING UI TOGGLE BUTTON -->
+    <div class="fixed top-4 right-4 z-50 flex items-center gap-2">
+        <button id="ui-toggle-btn" onclick="toggleUI()" class="glass-panel hover:bg-emerald-600/30 text-emerald-300 hover:text-white px-3.5 py-2 rounded-xl text-xs font-medium border border-emerald-500/40 shadow-xl flex items-center gap-2 transition active:scale-95 cursor-pointer">
+            <i data-lucide="eye-off" id="ui-toggle-icon" class="w-4 h-4"></i>
+            <span id="ui-toggle-text">Թաքցնել UI</span>
+            <span class="bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded text-[10px] hidden sm:inline">[H]</span>
+        </button>
+    </div>
+
+    <!-- MAIN INTERACTIVE OVERLAY -->
+    <div id="main-ui" class="ui-container relative z-10 w-full h-screen pointer-events-none flex flex-col justify-between p-3 md:p-5">
+        
+        <!-- Header Section -->
+        <header class="glass-panel rounded-2xl p-3 md:p-4 pointer-events-auto flex flex-wrap justify-between items-center gap-3 border-b border-emerald-500/30 mr-36 sm:mr-44">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 md:w-12 md:h-12 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-400 flex items-center justify-center text-white shadow-lg shadow-emerald-900/50">
+                    <i data-lucide="sprout" class="w-6 h-6"></i>
+                </div>
+                <div>
+                    <h1 class="text-lg md:text-2xl font-bold bg-gradient-to-r from-emerald-300 via-teal-200 to-green-400 bg-clip-text text-transparent">
+                        3D Վիրտուալ Ջերմոց
+                    </h1>
+                    <p class="text-[10px] md:text-xs text-slate-400">Խելացի Ջերմոցային Համակարգ և Բերքի Աճման Պայմաններ</p>
+                </div>
+            </div>
+
+
+            <!-- Camera Presets -->
+            <div class="flex items-center gap-1.5 bg-slate-900/80 p-1.5 rounded-xl border border-slate-700/60">
+                <span class="text-xs text-slate-400 px-2 hidden sm:flex items-center gap-1"><i data-lucide="video" class="w-3.5 h-3.5 text-emerald-400"></i> Տեսախցիկ՝</span>
+                <button onclick="setCameraView('overview')" class="px-2.5 py-1 text-xs rounded-lg bg-slate-800 hover:bg-emerald-600/40 text-slate-200 transition">Ընդհանուր</button>
+                <button onclick="setCameraView('inside')" class="px-2.5 py-1 text-xs rounded-lg bg-slate-800 hover:bg-emerald-600/40 text-slate-200 transition">Ներսից</button>
+                <button onclick="setCameraView('fruitInspect')" class="px-2.5 py-1 text-xs rounded-lg bg-slate-800 hover:bg-emerald-600/40 text-slate-200 transition">Պտղի Զննում</button>
+                <button onclick="setCameraView('top')" class="px-2.5 py-1 text-xs rounded-lg bg-slate-800 hover:bg-emerald-600/40 text-slate-200 transition">Վերևից</button>
+            </div>
+
+            <!-- Quick Controls -->
+            <div class="flex items-center gap-2">
+                <button id="sound-btn" onclick="toggleAudio()" class="glass-card hover:bg-slate-700/50 p-2.5 rounded-xl text-xs flex items-center gap-1.5 text-slate-300 transition">
+                    <i data-lucide="volume-x" id="sound-icon" class="w-4 h-4 text-red-400"></i>
+                    <span class="hidden md:inline">Ձայն</span>
+                </button>
+                <div class="glass-card px-3 py-2 rounded-xl flex items-center gap-2 text-xs">
+                    <i data-lucide="clock" class="w-4 h-4 text-emerald-400"></i>
+                    <span id="time-display" class="font-mono">12:00</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content Workspace -->
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 my-auto h-[calc(100vh-140px)] pointer-events-none mt-3">
+            
+            <!-- LEFT PANEL: Crop Selector, Sensor Dashboard & Growth Conditions History -->
+            <div class="lg:col-span-3 flex flex-col gap-3 pointer-events-auto overflow-y-auto custom-scrollbar pr-1 max-h-full">
+                
+                <!-- Crop Species Selector -->
+                <div class="glass-panel rounded-2xl p-4 flex flex-col gap-2">
+                    <h2 class="text-xs font-bold text-slate-300 flex items-center gap-2 border-b border-slate-700/60 pb-1.5">
+                        <i data-lucide="leaf" class="w-4 h-4 text-emerald-400"></i>
+                        Մշակաբույսի Ընտրություն
+                    </h2>
+                    <select id="crop-select" onchange="changeCropProfile(this.value)" class="w-full bg-slate-900/90 text-slate-100 text-xs rounded-xl p-2.5 border border-slate-700 focus:outline-none focus:border-emerald-500">
+                        <option value="tomato">Լոլիկ (Tomato)</option>
+                        <option value="strawberry">Ելակ (Strawberry)</option>
+                        <option value="pepper">Տաքդեղ / Բղպեղ (Pepper)</option>
+                        <option value="cucumber">Վարունգ (Cucumber)</option>
+                    </select>
+                </div>
+
+
+                <!-- NEW FEATURE: Crop Growth History & Conditions Analytics Card -->
+                <div class="glass-panel rounded-2xl p-4 flex flex-col gap-3 border-l-4 border-emerald-500">
+                    <div class="flex justify-between items-center border-b border-slate-700/60 pb-2">
+                        <h2 class="text-xs font-bold text-emerald-300 flex items-center gap-2">
+                            <i data-lucide="history" class="w-4 h-4 text-emerald-400"></i>
+                            Բերքի Պատմություն & Պայմաններ
+                        </h2>
+                        <span id="yield-badge" class="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded border border-emerald-500/40 font-bold">Գերազանց (98%)</span>
+                    </div>
+
+                    <!-- Target vs Current Conditions Matrix -->
+                    <div class="text-[11px] space-y-1.5">
+                        <div class="flex justify-between items-center bg-slate-900/50 p-1.5 rounded-lg">
+                            <span class="text-slate-400">Օպտիմալ Ջերմաստիճան՝</span>
+                            <span id="target-temp-text" class="font-semibold text-slate-200">20°C - 28°C</span>
+                        </div>
+                        <div class="flex justify-between items-center bg-slate-900/50 p-1.5 rounded-lg">
+                            <span class="text-slate-400">Օպտիմալ Հողի Խոնավ․՝</span>
+                            <span id="target-soil-text" class="font-semibold text-slate-200">65% - 80%</span>
+                        </div>
+                    </div>
+
+                    <!-- Stage-by-Stage Condition Breakdown -->
+                    <div class="space-y-1.5">
+                        <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Աճման Փուլերի Պատմություն</span>
+                        
+                        <!-- 0-25 Stage -->
+                        <div class="bg-slate-900/70 p-2 rounded-xl border border-slate-800 flex justify-between items-center text-[11px]">
+                            <div>
+                                <span class="font-semibold text-slate-200 block">0%-25% (Ծիլ / Սերմ)</span>
+                                <span id="stage-log-1" class="text-[10px] text-emerald-400">Ջերմ՝ 23.5°C | Խոնավ՝ 75%</span>
+                            </div>
+                            <span class="text-emerald-400 font-bold">100%</span>
+                        </div>
+
+                        <!-- 25-50 Stage -->
+                        <div class="bg-slate-900/70 p-2 rounded-xl border border-slate-800 flex justify-between items-center text-[11px]">
+                            <div>
+                                <span class="font-semibold text-slate-200 block">25%-50% (Վեգետատիվ)</span>
+                                <span id="stage-log-2" class="text-[10px] text-emerald-400">Ջերմ՝ 24.1°C | Խոնավ՝ 72%</span>
+                            </div>
+                            <span class="text-emerald-400 font-bold">98%</span>
+                        </div>
+
+
+                        <!-- 50-75 Stage -->
+                        <div class="bg-slate-900/70 p-2 rounded-xl border border-slate-800 flex justify-between items-center text-[11px]">
+                            <div>
+                                <span class="font-semibold text-slate-200 block">50%-75% (Ծաղկում)</span>
+                                <span id="stage-log-3" class="text-[10px] text-emerald-400">Ջերմ՝ 24.8°C | Խոնավ՝ 70%</span>
+                            </div>
+                            <span class="text-emerald-400 font-bold">96%</span>
+                        </div>
+
+                        <!-- 75-100 Stage -->
+                        <div class="bg-slate-900/70 p-2 rounded-xl border border-slate-800 flex justify-between items-center text-[11px]">
+                            <div>
+                                <span class="font-semibold text-slate-200 block">75%-100% (Պտղաբերում)</span>
+                                <span id="stage-log-4" class="text-[10px] text-emerald-400">Ջերմ՝ 24.0°C | Խոնավ՝ 71%</span>
+                            </div>
+                            <span class="text-emerald-400 font-bold">97%</span>
+                        </div>
+                    </div>
+
+                    <button onclick="openFruitModal()" class="w-full py-2 bg-emerald-600/30 hover:bg-emerald-600/50 text-emerald-300 rounded-xl text-xs font-semibold border border-emerald-500/40 transition flex items-center justify-center gap-1.5">
+                        <i data-lucide="search" class="w-3.5 h-3.5"></i>
+                        Զննել Պտղի Աճման Մանրամասները
+                    </button>
+                </div>
+
+                <!-- Live Sensor Metrics -->
+                <div class="glass-panel rounded-2xl p-4 flex flex-col gap-2.5">
+                    <h2 class="text-sm font-bold text-slate-200 flex items-center gap-2 border-b border-slate-700/60 pb-2">
+                        <i data-lucide="activity" class="w-4 h-4 text-emerald-400"></i>
+                        Սենսորային Տվյալներ
+                    </h2>
+
+                    <!-- Temperature -->
+                    <div class="bg-slate-900/60 p-2.5 rounded-xl border border-slate-800 flex items-center justify-between">
+                        <div>
+                            <div class="text-[11px] text-slate-400 flex items-center gap-1">
+                                <i data-lucide="thermometer" class="w-3.5 h-3.5 text-red-400"></i> Ջերմաստիճան
+                            </div>
+                            <div class="text-lg font-bold text-slate-100 mt-0.5" id="val-temp">24.0 °C</div>
+                        </div>
+                        <div id="status-temp" class="text-[10px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">Օպտիմալ</div>
+                    </div>
+
+
+                    <!-- Air Humidity -->
+                    <div class="bg-slate-900/60 p-2.5 rounded-xl border border-slate-800 flex items-center justify-between">
+                        <div>
+                            <div class="text-[11px] text-slate-400 flex items-center gap-1">
+                                <i data-lucide="droplets" class="w-3.5 h-3.5 text-blue-400"></i> Օդի Խոնավություն
+                            </div>
+                            <div class="text-lg font-bold text-slate-100 mt-0.5" id="val-humidity">65 %</div>
+                        </div>
+                        <div id="status-humidity" class="text-[10px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">Օպտիմալ</div>
+                    </div>
+
+                    <!-- Soil Moisture -->
+                    <div class="bg-slate-900/60 p-2.5 rounded-xl border border-slate-800 flex items-center justify-between">
+                        <div>
+                            <div class="text-[11px] text-slate-400 flex items-center gap-1">
+                                <i data-lucide="waves" class="w-3.5 h-3.5 text-teal-400"></i> Հողի Խոնավություն
+                            </div>
+                            <div class="text-lg font-bold text-slate-100 mt-0.5" id="val-soil">72 %</div>
+                        </div>
+                        <div id="status-soil" class="text-[10px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">Օպտիմալ</div>
+                    </div>
+
+                    <!-- Light Level -->
+                    <div class="bg-slate-900/60 p-2.5 rounded-xl border border-slate-800 flex items-center justify-between">
+                        <div>
+                            <div class="text-[11px] text-slate-400 flex items-center gap-1">
+                                <i data-lucide="sun" class="w-3.5 h-3.5 text-amber-400"></i> Լուսավորվածություն
+                            </div>
+                            <div class="text-lg font-bold text-slate-100 mt-0.5" id="val-light">8,500 Lux</div>
+                        </div>
+                        <div id="status-light" class="text-[10px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">Օպտիմալ</div>
+                    </div>
+
+                    <!-- CO2 Level -->
+                    <div class="bg-slate-900/60 p-2.5 rounded-xl border border-slate-800 flex items-center justify-between">
+                        <div>
+                            <div class="text-[11px] text-slate-400 flex items-center gap-1">
+                                <i data-lucide="wind" class="w-3.5 h-3.5 text-cyan-400"></i> CO₂ Մակարդակ
+                            </div>
+                            <div class="text-lg font-bold text-slate-100 mt-0.5" id="val-co2">800 ppm</div>
+                        </div>
+                        <div id="status-co2" class="text-[10px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">Օպտիմալ</div>
+                    </div>
+                </div>
+
+            </div>
+
+
+            <div class="lg:col-span-5 pointer-events-none"></div>
+
+            <!-- RIGHT PANEL: 0-100% Plant Growth Slider, Actuators & Controls -->
+            <div class="lg:col-span-4 flex flex-col gap-3 pointer-events-auto overflow-y-auto custom-scrollbar pl-1 max-h-full">
+                
+                <!-- Plant Growth Control Section (0% to 100%) -->
+                <div class="glass-panel rounded-2xl p-4 flex flex-col gap-3 border-2 border-emerald-500/40 shadow-2xl">
+                    <div class="flex justify-between items-center border-b border-slate-700/60 pb-2">
+                        <h2 class="text-sm font-bold text-emerald-300 flex items-center gap-2">
+                            <i data-lucide="trending-up" class="w-4 h-4 text-emerald-400"></i>
+                            Աճի Կարգավիճակը (0% - 100%)
+                        </h2>
+                        <span id="growth-slider-val" class="text-lg font-extrabold text-emerald-400 font-mono bg-emerald-950/80 px-2.5 py-0.5 rounded-lg border border-emerald-500/50">40%</span>
+                    </div>
+
+                    <!-- Main Growth Slider -->
+                    <div class="flex flex-col gap-1.5 my-1">
+                        <div class="flex justify-between text-[11px] text-slate-400">
+                            <span>0% (Սերմ)</span>
+                            <span id="plant-stage-title" class="font-semibold text-slate-200">Փուլ՝ Վեգետատիվ</span>
+                            <span>100% (Պտուղ)</span>
+                        </div>
+                        <input type="range" id="growth-slider" min="0" max="100" value="40" step="1" 
+                               oninput="onGrowthSliderInput(this.value)"
+                               class="w-full accent-emerald-500 h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer">
+                    </div>
+
+                    <!-- Growth Presets Buttons (0%, 25%, 50%, 75%, 100%) -->
+                    <div class="grid grid-cols-5 gap-1 text-[10px]">
+                        <button onclick="setGrowthPercent(0)" class="py-1 rounded bg-slate-800 hover:bg-emerald-600/30 border border-slate-700 text-slate-300">0% Սերմ</button>
+                        <button onclick="setGrowthPercent(25)" class="py-1 rounded bg-slate-800 hover:bg-emerald-600/30 border border-slate-700 text-slate-300">25% Ծիլ</button>
+                        <button onclick="setGrowthPercent(50)" class="py-1 rounded bg-slate-800 hover:bg-emerald-600/30 border border-slate-700 text-slate-300">50% Վեգ.</button>
+                        <button onclick="setGrowthPercent(75)" class="py-1 rounded bg-slate-800 hover:bg-emerald-600/30 border border-slate-700 text-slate-300">75% Ծաղիկ</button>
+                        <button onclick="setGrowthPercent(100)" class="py-1 rounded bg-slate-800 hover:bg-emerald-600/30 border border-slate-700 text-slate-300">100% Պտուղ</button>
+                    </div>
+
+                    <!-- Simulation Auto Grow vs Manual Mode Toggle -->
+                    <div class="flex justify-between items-center bg-slate-900/60 p-2 rounded-xl border border-slate-800 mt-1">
+                        <span class="text-xs text-slate-300 flex items-center gap-1.5">
+                            <i data-lucide="play-circle" class="w-3.5 h-3.5 text-amber-400"></i> Ինքնաշխատ Աճեցում (Auto Grow)
+                        </span>
+                        <input type="checkbox" id="auto-grow" checked onchange="toggleAutoGrow(this.checked)" class="w-4 h-4 accent-emerald-500 cursor-pointer">
+                    </div>
+                </div>
+
+
+                <!-- Environmental Controls Glass Panel -->
+                <div class="glass-panel rounded-2xl p-4 flex flex-col gap-3">
+                    <div class="flex justify-between items-center border-b border-slate-700/60 pb-2">
+                        <h2 class="text-sm font-bold text-slate-200 flex items-center gap-2">
+                            <i data-lucide="sliders" class="w-4 h-4 text-emerald-400"></i>
+                            Ակտիվ Կառավարում
+                        </h2>
+                        <div class="flex items-center gap-2">
+                            <span class="text-xs text-slate-400">Ավտոմատ՝</span>
+                            <input type="checkbox" id="auto-mode" checked class="w-4 h-4 accent-emerald-500 cursor-pointer">
+                        </div>
+                    </div>
+
+                    <!-- Weather Presets -->
+                    <div class="flex flex-col gap-1.5">
+                        <span class="text-xs text-slate-400"><i data-lucide="cloud-sun" class="w-3.5 h-3.5 text-amber-400 inline mr-1"></i>Արտաքին Եղանակ</span>
+                        <div class="grid grid-cols-3 gap-1.5 text-xs">
+                            <button onclick="setWeather('sunny')" id="btn-weather-sunny" class="py-1.5 rounded-xl bg-emerald-600/30 border border-emerald-500/50 text-emerald-300 transition">Արևոտ</button>
+                            <button onclick="setWeather('cloudy')" id="btn-weather-cloudy" class="py-1.5 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 transition">Ամպամած</button>
+                            <button onclick="setWeather('rainy')" id="btn-weather-rainy" class="py-1.5 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 transition">Անձրևոտ</button>
+                        </div>
+                    </div>
+
+                    <!-- Day / Night Slider -->
+                    <div class="flex flex-col gap-1">
+                        <div class="flex justify-between items-center text-xs">
+                            <span class="text-slate-400"><i data-lucide="sun-medium" class="w-3.5 h-3.5 text-amber-400 inline mr-1"></i>Օրվա Ժամ</span>
+                            <span id="time-slider-val" class="text-amber-300 font-mono">12:00</span>
+                        </div>
+                        <input type="range" id="time-slider" min="0" max="24" step="0.25" value="12" class="w-full accent-amber-400 h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer">
+                    </div>
+
+                    <!-- Actuator Switches -->
+                    <div class="grid grid-cols-2 gap-2 mt-1">
+                        <!-- Irrigation -->
+                        <div class="bg-slate-900/60 p-2.5 rounded-xl border border-slate-800 flex justify-between items-center">
+                            <div class="text-xs text-slate-200 flex items-center gap-1.5">
+                                <i data-lucide="shower-head" class="w-3.5 h-3.5 text-blue-400"></i> Ոռոգում
+                            </div>
+                            <label class="relative inline-flex items-center cursor-pointer">
+                                <input type="checkbox" id="toggle-irrigation" class="sr-only peer">
+                                <div class="w-8 h-4 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-500"></div>
+                            </label>
+                        </div>
+
+
+                        <!-- LED Lights -->
+                        <div class="bg-slate-900/60 p-2.5 rounded-xl border border-slate-800 flex justify-between items-center">
+                            <div class="text-xs text-slate-200 flex items-center gap-1.5">
+                                <i data-lucide="lightbulb" class="w-3.5 h-3.5 text-yellow-400"></i> LED Լույսեր
+                            </div>
+                            <label class="relative inline-flex items-center cursor-pointer">
+                                <input type="checkbox" id="toggle-lights" class="sr-only peer">
+                                <div class="w-8 h-4 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-yellow-400"></div>
+                            </label>
+                        </div>
+
+                        <!-- Vents -->
+                        <div class="bg-slate-900/60 p-2.5 rounded-xl border border-slate-800 flex justify-between items-center">
+                            <div class="text-xs text-slate-200 flex items-center gap-1.5">
+                                <i data-lucide="fan" class="w-3.5 h-3.5 text-cyan-400"></i> Օդափոխություն
+                            </div>
+                            <label class="relative inline-flex items-center cursor-pointer">
+                                <input type="checkbox" id="toggle-vents" class="sr-only peer">
+                                <div class="w-8 h-4 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-cyan-400"></div>
+                            </label>
+                        </div>
+
+                        <!-- Heating -->
+                        <div class="bg-slate-900/60 p-2.5 rounded-xl border border-slate-800 flex justify-between items-center">
+                            <div class="text-xs text-slate-200 flex items-center gap-1.5">
+                                <i data-lucide="flame" class="w-3.5 h-3.5 text-amber-500"></i> Ջեռուցում
+                            </div>
+                            <label class="relative inline-flex items-center cursor-pointer">
+                                <input type="checkbox" id="toggle-heating" class="sr-only peer">
+                                <div class="w-8 h-4 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-amber-500"></div>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+
+                <!-- Event Notification Log -->
+                <div class="glass-panel rounded-2xl p-4 flex flex-col justify-between flex-grow min-h-[130px]">
+                    <div class="flex justify-between items-center mb-2">
+                        <h3 class="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                            <i data-lucide="list-todo" class="w-3.5 h-3.5 text-emerald-400"></i>
+                            Իրադարձությունների Մատյան
+                        </h3>
+                        <button onclick="clearLogs()" class="text-[10px] text-slate-400 hover:text-slate-200 bg-slate-800 px-2 py-0.5 rounded">Մաքրել</button>
+                    </div>
+
+                    <div id="log-container" class="space-y-1.5 max-h-24 overflow-y-auto custom-scrollbar text-[11px] pr-1">
+                        <!-- Dynamic Logs -->
+                    </div>
+                </div>
+
+            </div>
+
+        </div>
+
+    </div>
+
+    <script>
+        // --- CROP PROFILES WITH HARVEST CONDITIONS ---
+        const cropProfiles = {
+            tomato: {
+                name: "Լոլիկ (Tomato)",
+                fruitShape: "sphere",
+                fruitColor: 0xef4444, // Red
+                flowerColor: 0xfacc15, // Yellow
+                leafColor: 0x15803d,
+                tempRange: [20, 28],
+                humidityRange: [60, 75],
+                soilRange: [65, 80],
+                lightRange: [7000, 12000],
+                co2Range: [700, 1000]
+            },
+            strawberry: {
+                name: "Ելակ (Strawberry)",
+                fruitShape: "cone",
+                fruitColor: 0xf43f5e, // Bright Red
+                flowerColor: 0xffffff, // White
+                leafColor: 0x16a34a,
+                tempRange: [18, 25],
+                humidityRange: [55, 70],
+                soilRange: [60, 75],
+                lightRange: [6000, 11000],
+                co2Range: [600, 900]
+            },
+            pepper: {
+                name: "Տաքդեղ / Բղպեղ (Pepper)",
+                fruitShape: "capsule",
+                fruitColor: 0xd97706, // Orange/Red
+                flowerColor: 0xffffff,
+                leafColor: 0x166534,
+                tempRange: [21, 29],
+                humidityRange: [60, 75],
+                soilRange: [65, 80],
+                lightRange: [7500, 13000],
+                co2Range: [700, 1000]
+            },
+            cucumber: {
+                name: "Վարունգ (Cucumber)",
+                fruitShape: "cylinder",
+                fruitColor: 0x15803d, // Dark Green
+                flowerColor: 0xfacc15,
+                leafColor: 0x047857,
+                tempRange: [22, 30],
+                humidityRange: [70, 85],
+                soilRange: [70, 85],
+                lightRange: [8000, 14000],
+                co2Range: [800, 1200]
+            }
+        };
+
+
+        // --- GLOBAL SYSTEM STATE ---
+        let currentCropKey = 'tomato';
+        let state = {
+            growthPercent: 40, // 0% to 100% exact progress
+            autoGrow: true,
+            autoMode: true,
+            weather: 'sunny',
+            timeOfDay: 12.0, // 0 to 24
+            audioMuted: true,
+            uiVisible: true,
+
+            // Telemetry
+            temp: 24.0,
+            humidity: 65,
+            soilMoisture: 72,
+            light: 8500,
+            co2: 800,
+
+            // Historical Stage Conditions Averages
+            stageLogs: {
+                stage1: { temp: 23.5, soil: 75, quality: 100 },
+                stage2: { temp: 24.1, soil: 72, quality: 98 },
+                stage3: { temp: 24.8, soil: 70, quality: 96 },
+                stage4: { temp: 24.0, soil: 71, quality: 97 }
+            },
+
+            // Actuators
+            irrigation: false,
+            lights: false,
+            vents: false,
+            heating: false
+        };
+
+        // --- THREE.JS SCENE VARIABLES ---
+        let scene, camera, renderer, controls;
+        let dirLight, hemiLight, ambientLight;
+        let greenhouseGroup, plantsMasterGroup, ventsGroup = [], ledLightsGroup = [];
+        let mistParticles, rainParticles;
+        let raycaster, mouse;
+        let plantInstances = [];
+        let audioCtx;
+
+        // Camera Presets
+        const cameraPresets = {
+            overview: { pos: new THREE.Vector3(18, 12, 22), target: new THREE.Vector3(0, 2, 0) },
+            inside: { pos: new THREE.Vector3(0, 2.2, 5), target: new THREE.Vector3(0, 1.8, -2) },
+            fruitInspect: { pos: new THREE.Vector3(-2.2, 1.6, 1.8), target: new THREE.Vector3(-2.8, 1.1, 0) },
+            top: { pos: new THREE.Vector3(0, 26, 0.1), target: new THREE.Vector3(0, 0, 0) }
+        };
+
+        window.addEventListener('load', () => {
+            lucide.createIcons();
+            init3DScene();
+            buildGreenhouse();
+            buildPlantBedsAndPlants();
+            createParticleSystems();
+            setupInteractions();
+            setupUIEventListeners();
+            startSimulationLoop();
+            
+            addLog("3D Վիրտուալ Ջերմոցը պատրաստ է:", "success");
+            addLog("Բերքի աճման պայմանների պատմությունը միացված է:", "info");
+        });
+
+
+        function toggleUI() {
+            state.uiVisible = !state.uiVisible;
+            const mainUI = document.getElementById('main-ui');
+            const icon = document.getElementById('ui-toggle-icon');
+            const text = document.getElementById('ui-toggle-text');
+
+            if (state.uiVisible) {
+                mainUI.classList.remove('ui-hidden');
+                icon.setAttribute('data-lucide', 'eye-off');
+                text.innerText = "Թաքցնել UI";
+            } else {
+                mainUI.classList.add('ui-hidden');
+                icon.setAttribute('data-lucide', 'eye');
+                text.innerText = "Ցուցադրել UI";
+            }
+            lucide.createIcons();
+            playBeep(480, 0.08);
+        }
+
+        // 'H' Key Hotkey
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'h' || e.key === 'H' || e.key === 'ի' || e.key === 'Ի') {
+                toggleUI();
+            }
+        });
+
+        function init3DScene() {
+            const container = document.getElementById('webgl-container');
+
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x38bdf8);
+            scene.fog = new THREE.FogExp2(0x38bdf8, 0.012);
+
+            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.copy(cameraPresets.overview.pos);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: "high-performance" });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            container.appendChild(renderer.domElement);
+
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.maxPolarAngle = Math.PI / 2 - 0.02;
+            controls.minDistance = 1.5;
+            controls.maxDistance = 50;
+            controls.target.copy(cameraPresets.overview.target);
+
+            raycaster = new THREE.Raycaster();
+            mouse = new THREE.Vector2();
+
+            ambientLight = new THREE.AmbientLight(0xdbeafe, 0.4);
+            scene.add(ambientLight);
+
+            hemiLight = new THREE.HemisphereLight(0xffffff, 0x052e16, 0.4);
+            hemiLight.position.set(0, 20, 0);
+            scene.add(hemiLight);
+
+            dirLight = new THREE.DirectionalLight(0xfffbeb, 1.3);
+            dirLight.position.set(15, 20, 15);
+            dirLight.castShadow = true;
+            dirLight.shadow.mapSize.width = 2048;
+            dirLight.shadow.mapSize.height = 2048;
+            dirLight.shadow.camera.near = 0.5;
+            dirLight.shadow.camera.far = 60;
+            const d = 15;
+            dirLight.shadow.camera.left = -d;
+            dirLight.shadow.camera.right = d;
+            dirLight.shadow.camera.top = d;
+            dirLight.shadow.camera.bottom = -d;
+            scene.add(dirLight);
+
+            // Ground plane
+            const groundGeo = new THREE.PlaneGeometry(120, 120);
+            const groundMat = new THREE.MeshStandardMaterial({ color: 0x064e3b, roughness: 0.9, metalness: 0.1 });
+            const ground = new THREE.Mesh(groundGeo, groundMat);
+            ground.rotation.x = -Math.PI / 2;
+            ground.receiveShadow = true;
+            scene.add(ground);
+
+            window.addEventListener('resize', onWindowResize);
+        }
+
+
+        function buildGreenhouse() {
+            greenhouseGroup = new THREE.Group();
+            scene.add(greenhouseGroup);
+
+            const w = 10, h = 4.5, d = 14;
+
+            // Concrete Base
+            const baseGeo = new THREE.BoxGeometry(w + 0.6, 0.4, d + 0.6);
+            const baseMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.8 });
+            const baseMesh = new THREE.Mesh(baseGeo, baseMat);
+            baseMesh.position.y = 0.2;
+            baseMesh.receiveShadow = true;
+            greenhouseGroup.add(baseMesh);
+
+            const frameMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.8, roughness: 0.2 });
+            const glassMat = new THREE.MeshPhysicalMaterial({
+                color: 0xe0f2fe,
+                transparent: true,
+                opacity: 0.3,
+                roughness: 0.1,
+                transmission: 0.9,
+                thickness: 0.5,
+                ior: 1.4
+            });
+
+            const frameThickness = 0.12;
+
+            // Wall Glass
+            const wallGlassGeo = new THREE.BoxGeometry(w, h, d);
+            const wallGlass = new THREE.Mesh(wallGlassGeo, glassMat);
+            wallGlass.position.y = h / 2 + 0.4;
+            wallGlass.name = "Ջերմոցային Ապակի";
+            greenhouseGroup.add(wallGlass);
+
+            // Frame Corner Pillars
+            const corners = [[-w/2, d/2], [w/2, d/2], [-w/2, -d/2], [w/2, -d/2]];
+            corners.forEach(c => {
+                const pillarGeo = new THREE.BoxGeometry(frameThickness, h, frameThickness);
+                const pillar = new THREE.Mesh(pillarGeo, frameMat);
+                pillar.position.set(c[0], h/2 + 0.4, c[1]);
+                pillar.castShadow = true;
+                greenhouseGroup.add(pillar);
+            });
+
+            // Roof Roof Left & Right
+            const roofHeight = 2.2;
+            const roofAngle = Math.atan2(roofHeight, w/2);
+            const roofWidth = Math.sqrt(Math.pow(w/2, 2) + Math.pow(roofHeight, 2));
+            const roofGeoLeft = new THREE.PlaneGeometry(roofWidth, d);
+            
+            const roofMeshLeft = new THREE.Mesh(roofGeoLeft, glassMat);
+            roofMeshLeft.position.set(-w/4, h + roofHeight/2 + 0.4, 0);
+            roofMeshLeft.rotation.z = roofAngle;
+            roofMeshLeft.rotation.x = Math.PI/2;
+            greenhouseGroup.add(roofMeshLeft);
+
+            const roofMeshRight = new THREE.Mesh(roofGeoLeft, glassMat);
+            roofMeshRight.position.set(w/4, h + roofHeight/2 + 0.4, 0);
+            roofMeshRight.rotation.z = -roofAngle;
+            roofMeshRight.rotation.x = Math.PI/2;
+            greenhouseGroup.add(roofMeshRight);
+
+            // Roof Ventilation Vents
+            ventsGroup = [];
+            for (let i = -1; i <= 1; i += 2) {
+                const ventGeo = new THREE.BoxGeometry(w/2 - 0.2, 0.08, 3);
+                const ventMesh = new THREE.Mesh(ventGeo, frameMat);
+                ventMesh.position.set((w/4) * i, h + roofHeight/2 + 0.8, i * 2.5);
+                ventMesh.name = "Օդափոխության Պատուհան";
+                ventMesh.userData = { originalY: ventMesh.position.y };
+                greenhouseGroup.add(ventMesh);
+                ventsGroup.push(ventMesh);
+            }
+
+            // LED Fixtures
+            ledLightsGroup = [];
+            for (let z = -4; z <= 4; z += 4) {
+                const fixtureGeo = new THREE.BoxGeometry(w - 1.5, 0.15, 0.4);
+                const fixtureMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, metalness: 0.9 });
+                const fixture = new THREE.Mesh(fixtureGeo, fixtureMat);
+                fixture.position.set(0, h + 0.2, z);
+
+                const stripGeo = new THREE.BoxGeometry(w - 1.7, 0.05, 0.2);
+                const stripMat = new THREE.MeshStandardMaterial({ color: 0xfef08a, emissive: 0xfef08a, emissiveIntensity: 0 });
+                const strip = new THREE.Mesh(stripGeo, stripMat);
+                strip.position.y = -0.08;
+                fixture.add(strip);
+
+                const pLight = new THREE.PointLight(0xfef08a, 0, 12);
+                pLight.position.set(0, -0.5, 0);
+                fixture.add(pLight);
+
+                fixture.name = "LED Լուսատու";
+                greenhouseGroup.add(fixture);
+                ledLightsGroup.push({ mesh: fixture, stripMat: stripMat, pointLight: pLight });
+            }
+
+            // Irrigation Pipes
+            const pipeGeo = new THREE.CylinderGeometry(0.06, 0.06, d - 1, 8);
+            const pipeMat = new THREE.MeshStandardMaterial({ color: 0x38bdf8, metalness: 0.6 });
+            const pipe = new THREE.Mesh(pipeGeo, pipeMat);
+            pipe.rotation.x = Math.PI / 2;
+            pipe.position.set(0, h - 0.2, 0);
+            pipe.name = "Ոռոգման Խողովակ";
+            greenhouseGroup.add(pipe);
+        }
+
+        function buildPlantBedsAndPlants() {
+            plantsMasterGroup = new THREE.Group();
+            scene.add(plantsMasterGroup);
+
+            const bedWidth = 2.2, bedLength = 11, bedHeight = 0.5;
+            const xPositions = [-2.8, 0, 2.8];
+            plantInstances = [];
+
+            xPositions.forEach((xPos, idx) => {
+                // Soil Bed
+                const containerGeo = new THREE.BoxGeometry(bedWidth, bedHeight, bedLength);
+                const containerMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.7 });
+                const container = new THREE.Mesh(containerGeo, containerMat);
+                container.position.set(xPos, 0.45, 0);
+                container.receiveShadow = true;
+                scene.add(container);
+
+                const soilGeo = new THREE.BoxGeometry(bedWidth - 0.1, 0.05, bedLength - 0.1);
+                const soilMat = new THREE.MeshStandardMaterial({ color: 0x3f2314, roughness: 0.95 });
+                const soil = new THREE.Mesh(soilGeo, soilMat);
+                soil.position.set(xPos, 0.7, 0);
+                soil.name = `Մարգ ${idx + 1} - Հողաշերտ`;
+                scene.add(soil);
+
+                // Planting Rows
+                for (let z = -bedLength/2 + 1.2; z <= bedLength/2 - 1.2; z += 1.8) {
+                    const plantObj = new THREE.Group();
+                    plantObj.position.set(xPos, 0.72, z);
+                    
+                    plantObj.userData = {
+                        meshContainer: new THREE.Group()
+                    };
+                    plantObj.add(plantObj.userData.meshContainer);
+                    plantsMasterGroup.add(plantObj);
+
+                    plantInstances.push(plantObj);
+                }
+
+            });
+
+            updateAllPlantsInScene();
+        }
+
+        // Generate dynamic procedural plant mesh strictly mapped to 0% - 100%
+        function generateProceduralPlantMesh(profile, percent) {
+            const container = new THREE.Group();
+            const progress = percent / 100.0;
+
+            if (percent < 5) {
+                // Seed stage (0% - 5%)
+                const seedMoundGeo = new THREE.ConeGeometry(0.12, 0.08, 8);
+                const seedMoundMat = new THREE.MeshStandardMaterial({ color: 0x523321, roughness: 0.9 });
+                const mound = new THREE.Mesh(seedMoundGeo, seedMoundMat);
+                mound.position.y = 0.04;
+                mound.name = profile.name + " (Սերմ / Ծիլ)";
+                container.add(mound);
+                return container;
+            }
+
+            const stemHeight = 0.15 + progress * 1.8;
+            const stemRadius = 0.02 + progress * 0.035;
+
+            // Main Stem
+            const stemGeo = new THREE.CylinderGeometry(stemRadius * 0.7, stemRadius, stemHeight, 8);
+            const stemMat = new THREE.MeshStandardMaterial({ color: profile.leafColor, roughness: 0.6 });
+            const stem = new THREE.Mesh(stemGeo, stemMat);
+            stem.position.y = stemHeight / 2;
+            stem.castShadow = true;
+            stem.name = profile.name + " (Ցողուն)";
+            container.add(stem);
+
+            // Leaves (scaled by growth)
+            const leafCount = Math.floor(2 + progress * 16);
+            const leafSize = 0.08 + progress * 0.38;
+            const leafGeo = new THREE.SphereGeometry(leafSize, 8, 8);
+            leafGeo.scale(1.4, 0.15, 0.7);
+
+            for (let i = 0; i < leafCount; i++) {
+                const leafMat = new THREE.MeshStandardMaterial({ color: profile.leafColor, roughness: 0.5 });
+                const leaf = new THREE.Mesh(leafGeo, leafMat);
+                const leafY = (stemHeight / leafCount) * i + 0.08;
+                const angle = i * 2.2;
+
+                leaf.position.set(Math.cos(angle) * (stemRadius + 0.05), leafY, Math.sin(angle) * (stemRadius + 0.05));
+                leaf.rotation.y = angle;
+                leaf.rotation.z = 0.35 + Math.sin(i) * 0.1;
+                leaf.castShadow = true;
+                container.add(leaf);
+            }
+
+
+            // Flowering Stage (50% to 100%)
+            if (percent >= 50) {
+                const flowerProgress = Math.min(1.0, (percent - 50) / 25.0);
+                const flowerCount = Math.floor(2 + flowerProgress * 5);
+
+                for (let f = 0; f < flowerCount; f++) {
+                    const flowerGroup = new THREE.Group();
+                    const petalGeo = new THREE.SphereGeometry(0.06 * flowerProgress, 6, 6);
+                    petalGeo.scale(1, 0.2, 1);
+                    const petalMat = new THREE.MeshStandardMaterial({ color: profile.flowerColor, roughness: 0.4 });
+
+                    for (let p = 0; p < 5; p++) {
+                        const petal = new THREE.Mesh(petalGeo, petalMat);
+                        const pAngle = (p / 5) * Math.PI * 2;
+                        petal.position.set(Math.cos(pAngle) * 0.05, 0, Math.sin(pAngle) * 0.05);
+                        flowerGroup.add(petal);
+                    }
+
+                    const fAngle = f * 2.1 + 0.4;
+                    const fY = stemHeight * (0.5 + f * 0.12);
+                    flowerGroup.position.set(Math.cos(fAngle) * 0.25, fY, Math.sin(fAngle) * 0.25);
+                    flowerGroup.name = profile.name + " (Ծաղիկ)";
+                    container.add(flowerGroup);
+                }
+            }
+
+            // Fruiting Stage (75% to 100%)
+            if (percent >= 75) {
+                const fruitProgress = (percent - 75) / 25.0; // 0.0 to 1.0
+                const fruitCount = Math.floor(2 + fruitProgress * 4);
+
+                const unripeColor = new THREE.Color(0x22c55e);
+                const ripeColor = new THREE.Color(profile.fruitColor);
+                const currentFruitColor = unripeColor.clone().lerp(ripeColor, fruitProgress);
+
+                let fruitGeo;
+                const fruitSize = 0.08 + fruitProgress * 0.14;
+
+                if (profile.fruitShape === "cone") {
+                    fruitGeo = new THREE.ConeGeometry(fruitSize * 0.9, fruitSize * 1.5, 8);
+                } else if (profile.fruitShape === "capsule") {
+                    fruitGeo = new THREE.CylinderGeometry(fruitSize * 0.6, fruitSize * 0.8, fruitSize * 1.8, 8);
+                } else if (profile.fruitShape === "cylinder") {
+                    fruitGeo = new THREE.CylinderGeometry(fruitSize * 0.5, fruitSize * 0.5, fruitSize * 2.2, 8);
+                } else {
+                    fruitGeo = new THREE.SphereGeometry(fruitSize, 12, 12);
+                }
+
+                const fruitMat = new THREE.MeshStandardMaterial({ color: currentFruitColor, roughness: 0.3 });
+
+                for (let fr = 0; fr < fruitCount; fr++) {
+                    const fruit = new THREE.Mesh(fruitGeo, fruitMat);
+                    const frAngle = fr * 2.3 + 0.8;
+                    const frY = stemHeight * (0.4 + fr * 0.14);
+
+                    fruit.position.set(Math.cos(frAngle) * 0.28, frY, Math.sin(frAngle) * 0.28);
+                    fruit.castShadow = true;
+                    fruit.name = profile.name + (fruitProgress > 0.7 ? " (Հասուն Պտուղ)" : " (Խակ Պտուղ)");
+                    fruit.userData = { isInteractableFruit: true };
+                    container.add(fruit);
+                }
+            }
+
+
+            return container;
+        }
+
+        function updateAllPlantsInScene() {
+            const profile = cropProfiles[currentCropKey];
+            plantInstances.forEach(plantObj => {
+                const meshContainer = plantObj.userData.meshContainer;
+                while(meshContainer.children.length > 0) {
+                    meshContainer.remove(meshContainer.children[0]);
+                }
+                const newMesh = generateProceduralPlantMesh(profile, state.growthPercent);
+                meshContainer.add(newMesh);
+            });
+            updateGrowthStageUI();
+            updateHistoryLogAverages();
+        }
+
+        // Interactive Growth Slider Handlers
+        function onGrowthSliderInput(val) {
+            state.growthPercent = parseInt(val, 10);
+            updateAllPlantsInScene();
+        }
+
+        function setGrowthPercent(percent) {
+            state.growthPercent = percent;
+            document.getElementById('growth-slider').value = percent;
+            updateAllPlantsInScene();
+            addLog(`Աճի կարգավիճակը սահմանվեց ${percent}%`, "action");
+            playBeep(500 + percent * 4, 0.1);
+        }
+
+        function toggleAutoGrow(enabled) {
+            state.autoGrow = enabled;
+            addLog(`Ինքնաշխատ աճեցումը ${enabled ? 'ԱԿՏԻՎԱՑՎԵՑ' : 'ԱՆՋԱՏՎԵՑ'}`, enabled ? "success" : "warning");
+            playBeep(enabled ? 700 : 350, 0.12);
+        }
+
+        function changeCropProfile(cropKey) {
+            currentCropKey = cropKey;
+            const prof = cropProfiles[cropKey];
+            
+            document.getElementById('target-temp-text').innerText = `${prof.tempRange[0]}°C - ${prof.tempRange[1]}°C`;
+            document.getElementById('target-soil-text').innerText = `${prof.soilRange[0]}% - ${prof.soilRange[1]}%`;
+            
+            updateAllPlantsInScene();
+            addLog(`Մշակաբույսը փոխվեց՝ ${prof.name}`, "info");
+        }
+
+        function createParticleSystems() {
+            // Mist particles
+            const mistCount = 600;
+            const mistGeo = new THREE.BufferGeometry();
+            const mistPos = new Float32Array(mistCount * 3);
+
+            for (let i = 0; i < mistCount * 3; i += 3) {
+                mistPos[i] = (Math.random() - 0.5) * 8;
+                mistPos[i + 1] = 1 + Math.random() * 3.2;
+                mistPos[i + 2] = (Math.random() - 0.5) * 12;
+            }
+
+            mistGeo.setAttribute('position', new THREE.BufferAttribute(mistPos, 3));
+            const mistMat = new THREE.PointsMaterial({
+                color: 0x38bdf8,
+                size: 0.08,
+                transparent: true,
+                opacity: 0,
+                blending: THREE.AdditiveBlending
+            });
+
+
+            mistParticles = new THREE.Points(mistGeo, mistMat);
+            scene.add(mistParticles);
+
+            // Rain particles
+            const rainCount = 1000;
+            const rainGeo = new THREE.BufferGeometry();
+            const rainPos = new Float32Array(rainCount * 3);
+
+            for (let i = 0; i < rainCount * 3; i += 3) {
+                rainPos[i] = (Math.random() - 0.5) * 40;
+                rainPos[i + 1] = Math.random() * 35;
+                rainPos[i + 2] = (Math.random() - 0.5) * 40;
+            }
+
+            rainGeo.setAttribute('position', new THREE.BufferAttribute(rainPos, 3));
+            const rainMat = new THREE.PointsMaterial({
+                color: 0x93c5fd,
+                size: 0.15,
+                transparent: true,
+                opacity: 0
+            });
+
+            rainParticles = new THREE.Points(rainGeo, rainMat);
+            scene.add(rainParticles);
+        }
+
+        function setupInteractions() {
+            const container = document.getElementById('webgl-container');
+            const tooltip = document.getElementById('3d-tooltip');
+            const tooltipText = document.getElementById('tooltip-text');
+
+            container.addEventListener('mousemove', (e) => {
+                mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+                mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+
+                raycaster.setFromCamera(mouse, camera);
+                const intersects = raycaster.intersectObjects(scene.children, true);
+
+                if (intersects.length > 0) {
+                    const obj = intersects[0].object;
+                    if (obj.name && obj.name !== "" && obj.name !== "Ջերմոցային Ապակի") {
+                        tooltip.style.display = 'flex';
+                        tooltip.style.left = `${e.clientX + 12}px`;
+                        tooltip.style.top = `${e.clientY + 12}px`;
+                        tooltipText.innerText = obj.name;
+                        return;
+                    }
+                }
+
+                tooltip.style.display = 'none';
+            });
+
+            container.addEventListener('click', (e) => {
+                mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+                mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+
+                raycaster.setFromCamera(mouse, camera);
+                const intersects = raycaster.intersectObjects(scene.children, true);
+
+                if (intersects.length > 0) {
+                    const obj = intersects[0].object;
+                    if (obj.name && obj.name.includes(cropProfiles[currentCropKey].name)) {
+                        openFruitModal();
+                    }
+                }
+            });
+        }
+
+        // Fruit Modal Inspection Functions
+        function openFruitModal() {
+            const modal = document.getElementById('fruit-modal');
+            const cropName = cropProfiles[currentCropKey].name;
+
+            document.getElementById('modal-crop-name').innerText = `${cropName} - Բերքի Վերլուծություն`;
+            document.getElementById('modal-crop-stage').innerText = `${state.growthPercent}% ${getStageName(state.growthPercent)}`;
+            
+            document.getElementById('modal-avg-temp').innerText = `${state.temp.toFixed(1)} °C`;
+            document.getElementById('modal-avg-soil').innerText = `${Math.round(state.soilMoisture)} %`;
+            document.getElementById('modal-avg-light').innerText = `${Math.round(state.light).toLocaleString()} Lux`;
+            document.getElementById('modal-avg-humidity').innerText = `${Math.round(state.humidity)} %`;
+            document.getElementById('modal-avg-co2').innerText = `${Math.round(state.co2)} ppm`;
+
+            modal.classList.remove('hidden');
+            playBeep(650, 0.12);
+        }
+
+        function closeFruitModal() {
+            document.getElementById('fruit-modal').classList.add('hidden');
+            playBeep(450, 0.08);
+        }
+
+        function getStageName(percent) {
+            if (percent < 10) return "Սերմ (Seed)";
+            if (percent < 30) return "Ծիլ (Seedling)";
+            if (percent < 55) return "Վեգետատիվ (Vegetative)";
+            if (percent < 75) return "Ծաղկում (Flowering)";
+            return "Պտղաբերում (Fruiting)";
+        }
+
+        function toggleAudio() {
+            state.audioMuted = !state.audioMuted;
+            const soundIcon = document.getElementById('sound-icon');
+
+            if (!state.audioMuted) {
+                if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                soundIcon.setAttribute('data-lucide', 'volume-2');
+                soundIcon.className = "w-4 h-4 text-emerald-400";
+                addLog("Ձայնային էֆեկտները միացվեցին", "info");
+                playBeep(600, 0.1);
+            } else {
+                soundIcon.setAttribute('data-lucide', 'volume-x');
+                soundIcon.className = "w-4 h-4 text-red-400";
+                addLog("Ձայնային էֆեկտներն անջատվեցին", "info");
+            }
+            lucide.createIcons();
+        }
+
+
+        function playBeep(freq = 440, duration = 0.1) {
+            if (state.audioMuted || !audioCtx) return;
+            try {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+                gain.gain.setValueAtTime(0.05, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + duration);
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start();
+                osc.stop(audioCtx.currentTime + duration);
+            } catch(e) {}
+        }
+
+        function setupUIEventListeners() {
+            document.getElementById('time-slider').addEventListener('input', (e) => {
+                state.timeOfDay = parseFloat(e.target.value);
+                const hours = Math.floor(state.timeOfDay);
+                const mins = Math.round((state.timeOfDay - hours) * 60);
+                const timeStr = `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
+                document.getElementById('time-slider-val').innerText = timeStr;
+                document.getElementById('time-display').innerText = timeStr;
+                updateCelestialLighting();
+            });
+
+            document.getElementById('auto-mode').addEventListener('change', (e) => {
+                state.autoMode = e.target.checked;
+                addLog(`Ավտոմատացումը ${state.autoMode ? 'ԱԿՏԻՎԱՑՎԵՑ' : 'ԱՆՋԱՏՎԵՑ'}`, state.autoMode ? "success" : "warning");
+                playBeep(state.autoMode ? 700 : 350, 0.15);
+            });
+
+            document.getElementById('toggle-irrigation').addEventListener('change', (e) => {
+                state.irrigation = e.target.checked;
+                addLog(`Ոռոգման համակարգը ${state.irrigation ? 'միացավ' : 'անջատվեց'}`, "info");
+                playBeep(state.irrigation ? 650 : 400, 0.1);
+            });
+
+            document.getElementById('toggle-lights').addEventListener('change', (e) => {
+                state.lights = e.target.checked;
+                addLog(`LED Լուսավորությունը ${state.lights ? 'միացվեց' : 'անջատվեց'}`, "info");
+                playBeep(state.lights ? 800 : 450, 0.1);
+            });
+
+            document.getElementById('toggle-vents').addEventListener('change', (e) => {
+                state.vents = e.target.checked;
+                addLog(`Օդափոխությունը ${state.vents ? 'միացվեց' : 'անջատվեց'}`, "info");
+                playBeep(state.vents ? 600 : 350, 0.1);
+            });
+
+            document.getElementById('toggle-heating').addEventListener('change', (e) => {
+                state.heating = e.target.checked;
+                addLog(`Ջեռուցումը ${state.heating ? 'միացվեց' : 'անջատվեց'}`, "info");
+                playBeep(state.heating ? 550 : 300, 0.1);
+            });
+        }
+
+
+        function setCameraView(viewKey) {
+            const preset = cameraPresets[viewKey];
+            if (!preset) return;
+
+            const startPos = camera.position.clone();
+            const startTarget = controls.target.clone();
+            let progress = 0;
+
+            function animateCam() {
+                progress += 0.05;
+                camera.position.lerpVectors(startPos, preset.pos, progress);
+                controls.target.lerpVectors(startTarget, preset.target, progress);
+                controls.update();
+
+                if (progress < 1) {
+                    requestAnimationFrame(animateCam);
+                }
+            }
+            animateCam();
+            playBeep(500, 0.08);
+        }
+
+        function setWeather(type) {
+            state.weather = type;
+            const btnSunny = document.getElementById('btn-weather-sunny');
+            const btnCloudy = document.getElementById('btn-weather-cloudy');
+            const btnRainy = document.getElementById('btn-weather-rainy');
+
+            [btnSunny, btnCloudy, btnRainy].forEach(b => {
+                b.className = "py-1.5 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 transition";
+            });
+
+            if (type === 'sunny') {
+                btnSunny.className = "py-1.5 rounded-xl bg-emerald-600/30 border border-emerald-500/50 text-emerald-300 transition";
+                addLog("Արտաքին եղանակը՝ Արևոտ", "info");
+            } else if (type === 'cloudy') {
+                btnCloudy.className = "py-1.5 rounded-xl bg-emerald-600/30 border border-emerald-500/50 text-emerald-300 transition";
+                addLog("Արտաքին եղանակը՝ Ամպամած", "info");
+            } else if (type === 'rainy') {
+                btnRainy.className = "py-1.5 rounded-xl bg-emerald-600/30 border border-emerald-500/50 text-emerald-300 transition";
+                addLog("Արտաքին եղանակը՝ Անձրևոտ", "warning");
+            }
+            updateCelestialLighting();
+        }
+
+        function updateCelestialLighting() {
+            const angle = ((state.timeOfDay - 6) / 24) * Math.PI * 2;
+            const radius = 30;
+
+            dirLight.position.x = Math.cos(angle) * radius;
+            dirLight.position.y = Math.sin(angle) * radius;
+            dirLight.position.z = 15;
+
+            const isDay = state.timeOfDay >= 6 && state.timeOfDay <= 19;
+
+            if (isDay) {
+                if (state.weather === 'sunny') {
+                    scene.background.setHex(0x38bdf8);
+                    scene.fog.color.setHex(0x38bdf8);
+                    dirLight.color.setHex(0xfffbeb);
+                    dirLight.intensity = 1.3;
+                } else {
+                    scene.background.setHex(0x64748b);
+                    scene.fog.color.setHex(0x64748b);
+                    dirLight.color.setHex(0xcbd5e1);
+                    dirLight.intensity = 0.6;
+                }
+            } else {
+                scene.background.setHex(0x030712);
+                scene.fog.color.setHex(0x030712);
+                dirLight.color.setHex(0x818cf8);
+                dirLight.intensity = 0.2;
+            }
+        }
+
+
+        function startSimulationLoop() {
+            setInterval(() => {
+                runAutomations();
+                simulateEnvironmentPhysics();
+                processPlantGrowthTick();
+                updateTelemetryUI();
+            }, 1500);
+
+            function animate() {
+                requestAnimationFrame(animate);
+                controls.update();
+                animateActuators3D();
+                renderer.render(scene, camera);
+            }
+            animate();
+        }
+
+        function processPlantGrowthTick() {
+            if (!state.autoGrow) return;
+
+            if (state.growthPercent < 100) {
+                state.growthPercent = Math.min(100, state.growthPercent + 1);
+                document.getElementById('growth-slider').value = state.growthPercent;
+                updateAllPlantsInScene();
+            }
+        }
+
+        function updateGrowthStageUI() {
+            document.getElementById('growth-slider-val').innerText = `${state.growthPercent}%`;
+            document.getElementById('plant-stage-title').innerText = `Փուլ՝ ${getStageName(state.growthPercent)}`;
+        }
+
+        function updateHistoryLogAverages() {
+            // Update historical stage logging based on current state telemetry
+            const p = state.growthPercent;
+            if (p <= 25) {
+                state.stageLogs.stage1.temp = state.temp;
+                state.stageLogs.stage1.soil = state.soilMoisture;
+            } else if (p <= 50) {
+                state.stageLogs.stage2.temp = state.temp;
+                state.stageLogs.stage2.soil = state.soilMoisture;
+            } else if (p <= 75) {
+                state.stageLogs.stage3.temp = state.temp;
+                state.stageLogs.stage3.soil = state.soilMoisture;
+            } else {
+                state.stageLogs.stage4.temp = state.temp;
+                state.stageLogs.stage4.soil = state.soilMoisture;
+            }
+
+            document.getElementById('stage-log-1').innerText = `Ջերմ՝ ${state.stageLogs.stage1.temp.toFixed(1)}°C | Խոնավ՝ ${Math.round(state.stageLogs.stage1.soil)}%`;
+            document.getElementById('stage-log-2').innerText = `Ջերմ՝ ${state.stageLogs.stage2.temp.toFixed(1)}°C | Խոնավ՝ ${Math.round(state.stageLogs.stage2.soil)}%`;
+            document.getElementById('stage-log-3').innerText = `Ջերմ՝ ${state.stageLogs.stage3.temp.toFixed(1)}°C | Խոնավ՝ ${Math.round(state.stageLogs.stage3.soil)}%`;
+            document.getElementById('stage-log-4').innerText = `Ջերմ՝ ${state.stageLogs.stage4.temp.toFixed(1)}°C | Խոնավ՝ ${Math.round(state.stageLogs.stage4.soil)}%`;
+        }
+
+
+        function runAutomations() {
+            if (!state.autoMode) return;
+
+            if (state.soilMoisture < 65) {
+                if (!state.irrigation) {
+                    state.irrigation = true;
+                    document.getElementById('toggle-irrigation').checked = true;
+                    addLog("ԱՎՏՈ․ Ոռոգումն ակտիվացվեց", "action");
+                }
+            } else if (state.soilMoisture >= 82) {
+                if (state.irrigation) {
+                    state.irrigation = false;
+                    document.getElementById('toggle-irrigation').checked = false;
+                }
+            }
+
+            const isNight = state.timeOfDay < 6 || state.timeOfDay > 19;
+            if (isNight && state.light < 6000) {
+                if (!state.lights) {
+                    state.lights = true;
+                    document.getElementById('toggle-lights').checked = true;
+                    addLog("ԱՎՏՈ․ LED Լույսերը միացվեցին", "action");
+                }
+            } else if (!isNight) {
+                if (state.lights) {
+                    state.lights = false;
+                    document.getElementById('toggle-lights').checked = false;
+                }
+            }
+
+            if (state.temp > 28 || state.humidity > 78) {
+                if (!state.vents) {
+                    state.vents = true;
+                    document.getElementById('toggle-vents').checked = true;
+                    addLog("ԱՎՏՈ․ Օդափոխության պատուհանները բացվեցին", "action");
+                }
+            } else if (state.temp <= 22) {
+                if (state.vents) {
+                    state.vents = false;
+                    document.getElementById('toggle-vents').checked = false;
+                }
+            }
+        }
+
+        function simulateEnvironmentPhysics() {
+            if (state.irrigation) {
+                state.soilMoisture = Math.min(100, state.soilMoisture + 3.2);
+                state.humidity = Math.min(100, state.humidity + 1.2);
+            } else {
+                state.soilMoisture = Math.max(10, state.soilMoisture - 0.5);
+            }
+
+            if (state.heating) {
+                state.temp = Math.min(42, state.temp + 0.9);
+                state.humidity = Math.max(20, state.humidity - 0.6);
+            }
+
+            if (state.vents) {
+                state.humidity = Math.max(30, state.humidity - 1.5);
+                state.temp = Math.max(14, state.temp - 0.5);
+            }
+
+            if (state.weather === 'rainy') {
+                state.humidity = Math.min(95, state.humidity + 0.8);
+            }
+
+            const isDay = state.timeOfDay >= 6 && state.timeOfDay <= 19;
+            let baseLight = isDay ? (state.weather === 'sunny' ? 9500 : 4500) : 300;
+            if (state.lights) baseLight += 5000;
+            state.light = baseLight;
+        }
+
+        function animateActuators3D() {
+            ledLightsGroup.forEach(item => {
+                if (state.lights) {
+                    item.stripMat.emissiveIntensity = 1.0;
+                    item.pointLight.intensity = 1.5;
+                } else {
+                    item.stripMat.emissiveIntensity = 0;
+                    item.pointLight.intensity = 0;
+                }
+            });
+
+            ventsGroup.forEach(vent => {
+                const targetY = state.vents ? vent.userData.originalY + 0.6 : vent.userData.originalY;
+                vent.position.y += (targetY - vent.position.y) * 0.05;
+            });
+
+            if (mistParticles) {
+                const mistMat = mistParticles.material;
+                if (state.irrigation) {
+                    mistMat.opacity = Math.min(0.6, mistMat.opacity + 0.03);
+                    const positions = mistParticles.geometry.attributes.position.array;
+                    for (let i = 1; i < positions.length; i += 3) {
+                        positions[i] -= 0.04;
+                        if (positions[i] < 0.8) positions[i] = 4.0;
+                    }
+                    mistParticles.geometry.attributes.position.needsUpdate = true;
+                } else {
+                    mistMat.opacity = Math.max(0, mistMat.opacity - 0.03);
+                }
+            }
+
+            if (rainParticles) {
+                const rainMat = rainParticles.material;
+                if (state.weather === 'rainy') {
+                    rainMat.opacity = Math.min(0.7, rainMat.opacity + 0.04);
+                    const positions = rainParticles.geometry.attributes.position.array;
+                    for (let i = 1; i < positions.length; i += 3) {
+                        positions[i] -= 0.4;
+                        if (positions[i] < 0) positions[i] = 35;
+                    }
+                    rainParticles.geometry.attributes.position.needsUpdate = true;
+                } else {
+                    rainMat.opacity = Math.max(0, rainMat.opacity - 0.04);
+                }
+            }
+        }
+
+        function updateTelemetryUI() {
+            document.getElementById('val-temp').innerText = `${state.temp.toFixed(1)} °C`;
+            document.getElementById('val-humidity').innerText = `${Math.round(state.humidity)} %`;
+            document.getElementById('val-soil').innerText = `${Math.round(state.soilMoisture)} %`;
+            document.getElementById('val-light').innerText = `${Math.round(state.light).toLocaleString()} Lux`;
+            document.getElementById('val-co2').innerText = `${Math.round(state.co2)} ppm`;
+
+            const prof = cropProfiles[currentCropKey];
+            updateParamBadge('temp', state.temp, prof.tempRange);
+            updateParamBadge('humidity', state.humidity, prof.humidityRange);
+            updateParamBadge('soil', state.soilMoisture, prof.soilRange);
+            updateParamBadge('light', state.light, prof.lightRange);
+            updateParamBadge('co2', state.co2, prof.co2Range);
+        }
+
+
+        function updateParamBadge(id, val, range) {
+            const badge = document.getElementById(`status-${id}`);
+            if (!badge) return;
+            if (val >= range[0] && val <= range[1]) {
+                badge.className = "text-[10px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30";
+                badge.innerText = "Օպտիմալ";
+            } else if (val < range[0] - 4 || val > range[1] + 4) {
+                badge.className = "text-[10px] px-2 py-0.5 rounded bg-red-500/20 text-red-300 border border-red-500/30 animate-pulse";
+                badge.innerText = "Վտանգավոր";
+            } else {
+                badge.className = "text-[10px] px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30";
+                badge.innerText = "Շեղում";
+            }
+        }
+
+        function addLog(message, type = "info") {
+            const container = document.getElementById('log-container');
+            const entry = document.createElement('div');
+            const time = new Date().toLocaleTimeString();
+
+            let colorClass = "border-slate-700 text-slate-300";
+            let icon = "info";
+
+            if (type === "success") {
+                colorClass = "border-emerald-500/40 bg-emerald-500/10 text-emerald-200";
+                icon = "check-circle-2";
+            } else if (type === "warning") {
+                colorClass = "border-amber-500/40 bg-amber-500/10 text-amber-200";
+                icon = "alert-triangle";
+            } else if (type === "action") {
+                colorClass = "border-cyan-500/40 bg-cyan-500/10 text-cyan-200";
+                icon = "sliders";
+            }
+
+            entry.className = `p-1.5 rounded-lg border flex items-center justify-between ${colorClass}`;
+            entry.innerHTML = `
+                <div class="flex items-center gap-1.5">
+                    <i data-lucide="${icon}" class="w-3.5 h-3.5"></i>
+                    <span>${message}</span>
+                </div>
+                <span class="text-[9px] opacity-60">${time}</span>
+            `;
+
+            container.prepend(entry);
+            lucide.createIcons();
+        }
+
+
+        function clearLogs() {
+            document.getElementById('log-container').innerHTML = '';
+            addLog("Մատյանը մաքրվեց", "info");
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+    </script>
+</body>
+</html>
